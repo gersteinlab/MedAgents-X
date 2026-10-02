@@ -1,6 +1,5 @@
-import asyncio
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from omegaconf import DictConfig
 from pydantic import BaseModel, Field
@@ -74,10 +73,10 @@ Be constructive, specific, and focus on improving the quality of medical reasoni
 
     return Agent[OrchestratorContext](
         name="OrchestratorAgent",
-        model=cfg.orchestrate.get('orchestrator_model', cfg.execution.model.name),  # config: orchestrate.orchestrator_model or model.name
+        model=cfg.orchestrate.orchestrator.model,  # config: orchestrate.orchestrator_model or model.name
         instructions=get_orchestrator_instructions,
         output_type=OrchestratorResponse,
-        model_settings=ModelSettings(temperature=cfg.orchestrate.get('orchestrator_temperature', cfg.execution.model.temperature))  # config: orchestrate.orchestrator_temperature or model.temperature
+        model_settings=ModelSettings(temperature=cfg.orchestrate.orchestrator.temperature)  # config: orchestrate.orchestrator_temperature or model.temperature
     )
 
 async def run_orchestrator_agent(expert_results: List[ExpertResult], question: str, options: Dict[str, str], round_num: int, current_decision: Dict[str, Any], cfg: DictConfig) -> OrchestratorRunResult:
@@ -128,38 +127,16 @@ Focus on the quality of medical reasoning, evidence cited, and whether additiona
     )
 
     orchestrator_agent = _create_orchestrator_agent(cfg)
-    while True:
-        try:
-            result = await Runner.run(
-                starting_agent=orchestrator_agent,
-                input=analysis_prompt,
-                context=context,
-                max_turns=cfg.orchestrate.get('orchestrator_max_turns', 1)
-            )
-            break
-        except Exception:
-            await asyncio.sleep(1)
+    result = await Runner.run(
+        starting_agent=orchestrator_agent,
+        input=analysis_prompt,
+        context=context,
+        max_turns=cfg.orchestrate.orchestrator.max_turns
+    )
 
-    if isinstance(result.final_output, OrchestratorResponse):
-        total_usage = Usage()
-        for raw_response in result.raw_responses:
-            total_usage.add(raw_response.usage)
-        
-        return OrchestratorRunResult(
-            response=result.final_output,
-            usage=total_usage
-        )
-    else:
-        logger.warning("Orchestrator agent didn't return expected OrchestratorResponse format")
-        return OrchestratorRunResult(
-            response=OrchestratorResponse(
-                round_summary="Unable to process orchestrator response properly",
-                expert_feedback=[],
-                key_insights=[],
-                areas_of_agreement=[],
-                areas_of_disagreement=[],
-                should_continue=False,
-                confidence_in_decision="low"
-            ),
-            usage=result.usage
-        ) 
+    if not isinstance(result.final_output, OrchestratorResponse):
+        raise TypeError("Orchestrator did not return OrchestratorResponse")
+    total_usage = Usage()
+    for raw_response in result.raw_responses:
+        total_usage.add(raw_response.usage)
+    return OrchestratorRunResult(result.final_output, total_usage)

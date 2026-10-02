@@ -6,28 +6,15 @@ import os
 import json
 from typing import List, Dict, Any
 from datetime import datetime
-import torch
 import asyncio
-from pathlib import Path
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from dotenv import load_dotenv
 from medagents import MedAgents
-from agents import set_default_openai_client, set_tracing_disabled
-from openai import AsyncOpenAI
+from main import setup_openai_client
 from experiment import ExperimentResult, ExperimentSaver
 
 load_dotenv()
-
-def setup_openai_client():
-    """Setup OpenAI client with environment variables."""
-    client = AsyncOpenAI(
-        base_url=os.getenv("OPENAI_ENDPOINT"),
-        api_key=os.getenv("OPENAI_API_KEY"),
-    )
-    set_default_openai_client(client=client, use_for_tracing=False)
-    set_tracing_disabled(disabled=True)
-    return client
 
 def load_jsonl(file_path: str) -> List[Dict]:
     """Load data from JSONL file."""
@@ -39,7 +26,7 @@ def load_jsonl(file_path: str) -> List[Dict]:
                 data.append(json.loads(line))
     return data
 
-async def process_query(problem: Dict[str, Any], cfg: DictConfig, process_idx: int, few_shot_examples: List[Dict]) -> ExperimentResult:
+async def process_query(problem: Dict[str, Any], cfg: DictConfig) -> ExperimentResult:
     """Process a single query using the new agent implementation."""
     start_time = datetime.now()
     setup_openai_client()
@@ -71,7 +58,6 @@ def main(cfg: DictConfig):
         OmegaConf.save(cfg, f)
     saver = ExperimentSaver(output_dir)
     problems = load_jsonl(os.path.join(cfg.execution.dataset.dir, cfg.execution.dataset.name, f"{cfg.execution.dataset.split}.jsonl"))
-    few_shot_examples = load_jsonl(os.path.join(cfg.execution.dataset.dir, cfg.execution.dataset.name, f"train.jsonl"))[:5]
     for idx, problem in enumerate(problems):
         if 'realidx' not in problem:
             problem['realidx'] = idx
@@ -81,16 +67,12 @@ def main(cfg: DictConfig):
     print(f"Output directory: {output_dir}")
     print(f"Experiment: {experiment_name}")
     print(f"Model: {model_name}")
-    if torch.cuda.is_available() and cfg.execution.batch.gpu_ids:
-        print(f"Using GPUs: {cfg.execution.batch.gpu_ids}")
-    else:
-        print("Using CPU")
-        cfg.execution.batch.device = "cpu"
+    print(f"Retrieval device: {cfg.search.hardware.device}")
     async def process_all():
         for idx, problem in enumerate(problems_to_process):
             print(f"Processing problem {idx+1}/{len(problems_to_process)} (realidx: {problem['realidx']})")
             try:
-                result = await process_query(problem, cfg, idx, few_shot_examples)
+                result = await process_query(problem, cfg)
                 saver.add_result(result)
             except Exception as e:
                 import traceback

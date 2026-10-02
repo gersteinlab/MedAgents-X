@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 from pathlib import Path
 
 import hydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
@@ -187,8 +187,7 @@ def interactive_mode(cfg: DictConfig):
         except Exception as e:
             print(f"Error: {e}")
 
-@hydra.main(version_base=None, config_path='conf', config_name='config')
-def main(cfg: DictConfig):
+def main():
     """Main entry point for MedAgents-2 experiments."""
     parser = argparse.ArgumentParser(description='Run MedAgents-2 experiments')
     parser.add_argument('--mode', choices=['interactive', 'batch', 'single'], 
@@ -200,18 +199,20 @@ def main(cfg: DictConfig):
     parser.add_argument('--question', type=str, help='Single question for testing')
     parser.add_argument('--options', nargs='+', help='Options for single question (A:opt1 B:opt2 ...)')
     
-    # Parse Hydra config and command line args
+    parser.add_argument('--config', action='append', default=[], help='Hydra override (key=value); repeat as needed')
     args = parser.parse_args()
+    with hydra.initialize_config_dir(version_base=None, config_dir=str(Path(__file__).resolve().parent / 'conf')):
+        cfg = hydra.compose(config_name='config', overrides=args.config)
     
     # Override config with command line args
     if args.difficulty:
-        cfg.difficulty = args.difficulty
+        cfg.triage.forced_level = args.difficulty
     
     print("MedAgents-2 Configuration:")
-    print(f"  Model: {cfg.model.name}")
-    print(f"  Context Sharing: {cfg.orchestration.context_sharing}")
-    print(f"  Medical Specialties: {len(cfg.orchestration.medical_specialties)}")
-    print(f"  Difficulty Settings: {list(cfg.difficulty.keys())}")
+    print(f"  Model: {cfg.execution.model.name}")
+    print(f"  Context Sharing: {cfg.orchestrate.discussion_mode}")
+    print(f"  Medical Specialties: {len(cfg.orchestrate.medical_specialties)}")
+    print(f"  Difficulty Settings: {['easy', 'medium', 'hard']}")
     
     if args.mode == 'interactive':
         interactive_mode(cfg)

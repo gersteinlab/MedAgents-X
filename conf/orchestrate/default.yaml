@@ -4,11 +4,10 @@
 # - group_chat_voting_only: Experts can see other experts' responses but no orchestrator (voting only)
 # - one_on_one_sync: Experts only get orchestrator feedback, not other experts' responses (still multi-expert)
 discussion_mode: group_chat_with_orchestrator
-log_intermediate_steps: true
 
 orchestrator:
-  model: ${model.name}
-  temperature: ${model.temperature}
+  model: ${execution.model.name}
+  temperature: ${execution.model.temperature}
   max_turns: 1
 
 medical_specialties:
