@@ -1,6 +1,6 @@
 font.size: 8.5
 font.family: sans-serif
-font.sans-serif: Arial, Helvetica, DejaVu Sans, Liberation Sans
+font.sans-serif: Calibri, Arial, Helvetica, DejaVu Sans, Liberation Sans
 
 figure.dpi: 300
 figure.facecolor: white

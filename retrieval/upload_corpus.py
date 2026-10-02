@@ -11,18 +11,12 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--uri", type=str, default="http://localhost:19530")
     parser.add_argument("--base_dir", type=str, default=parent_dir)
-    parser.add_argument("--corpus", type=str, default="cpg")
+    parser.add_argument("--corpus", nargs="+", choices=["cpg", "recop", "textbooks", "statpearls"],
+                        default=["cpg", "recop", "textbooks", "statpearls"])
     return parser.parse_args()
 
 
-args = parse_args()
-
-client = MilvusClient(uri=args.uri)
-base_dir = args.base_dir
-corpus_name = args.corpus
-
-
-def data_upload(client: MilvusClient, corpus_name: str):
+def data_upload(client: MilvusClient, corpus_name: str, base_dir: str):
     global_offset = 0
     batch_size = 10000
 
@@ -64,4 +58,11 @@ def data_upload(client: MilvusClient, corpus_name: str):
     print(f"{corpus_name} Uploaded!")
 
 
-data_upload(client, corpus_name)
+if __name__ == "__main__":
+    args = parse_args()
+    client = MilvusClient(uri=args.uri)
+    try:
+        for corpus_name in args.corpus:
+            data_upload(client, corpus_name, args.base_dir)
+    finally:
+        client.close()

@@ -45,9 +45,45 @@ python run_experiments.py execution.dataset.name=medqa \
 
 Only the selected JSONL split is required. Results go under
 `output/<dataset>/<experiment>/run_<id>/<model>/`; rerunning resumes completed rows.
-See [output format](OUTPUT_STRUCTURE.md) and the configuration in `conf/`.
-The existing ablation scripts, analysis scripts, figures, notebooks, and datasets
-remain available. Superseded `old/` code is retained in Git history.
+See [output format](docs/output.md). All runtime configuration is in
+[`conf/config.yaml`](conf/config.yaml); the existing dotted override keys remain
+unchanged.
+
+## Experiment suites
+
+One script covers `medagents`, `medrag`, `hard`, `triage`, `orchestrate`, and
+`search`. It uses Hydra's multirun support and stops on the first failed suite
+command. Preview a run before submitting a large sweep:
+
+```bash
+DRY_RUN=1 MODEL=gpt-4o DATASETS=medqa RUN_IDS=0 scripts/experiments.sh search
+MODEL=gpt-4o DATASETS=medqa RUN_IDS=0 scripts/experiments.sh medrag
+scripts/experiments.sh --help
+```
+
+`DATASETS` and `RUN_IDS` accept comma-separated values. `MODEL`, `SPLIT`, and
+`PYTHON` override defaults; additional arguments are passed through as Hydra
+overrides. Without overrides, the historical dataset/run/model choices are
+retained. Forced agent-count ablations now bypass triage so their settings take
+effect. Check that the selected model is available on your endpoint.
+
+## Repository layout
+
+- Root Python modules: CLI, experiment runner, agents, and retrieval runtime.
+- `conf/config.yaml`: triage, discussion, search, and execution settings.
+- `scripts/`: experiment suites and dataset preparation.
+- `retrieval/`: Milvus startup/configuration and corpus import.
+- `analysis/`: result, expert-profile, and vote-entropy analysis.
+- `figures/`: one module per composite figure, shared style, and source diagrams.
+- `data/`: benchmark JSONL splits; `notebooks/`: exploratory research.
+- `docs/`: output format, figure instructions, and paper draft.
+- `output/`: generated experiments and figures (ignored by Git).
+
+Run research commands from the repository root, for example
+`python analysis/results.py --help` or `python -m figures.main_comparison`.
+See [figure inputs and commands](docs/figures.md). Removed prototypes and generated
+example PDFs remain in Git history; the latest server figure sources and data
+were also archived separately during recovery.
 
 ## Check
 
