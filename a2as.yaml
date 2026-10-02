@@ -1,0 +1,851 @@
+manifest:
+  version: "0.1.2"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: gersteinlab/medagents-2
+    source: https://github.com/gersteinlab/medagents-2
+    branch: main
+    commit: "aeb62679"
+    scope: [expert.py, figures/figure0/plot_utils.py, figures/figure1/cross_talk_dag.py, figures/figure1/plot_utils.py, figures/figure2/plot_utils.py,
+      figures/plot_style.py, medagents.py, orchestrate.py, retriever.py, search_tools.py, triage.py]
+  issued:
+    by: A2AS.org
+    at: '2026-01-26T16:15:27Z'
+  signatures:
+    digest: sha256:tcjkROHHk-GSTfA5Vq0rCNGn2dBlRiyRuJobi0JGks0
+    key: ed25519:b27bo3J9IJ4_t9mzU7KTmJgo1qaRJDnNyAas7CfvMXM
+    sig: ed25519:WR7Yitq6cGRydp_6asrRIF_tc4sxbLLv0T9Roza4yIpUWbQjNaJvPPJAQL6ZkP9ZSKwmd-M36wqdXLNeP8yQAQ
+
+agents:
+  agent:
+    type: instance
+    models: [cfg.execution.model.name]
+    tools: [search_tools]
+    params:
+      function: create_expert_agent
+      name: ExpertAgent
+      output_type: ExpertResponse
+      model_settings: ModelSettings(temperature=cfg.execution.model.temperature)
+      instructions: [get_expert_instructions]
+  agent.create_triage_agent:
+    type: factory
+    models: [cfg.execution.model.name]
+    params:
+      function: create_triage_agent
+      name: TriageAgent_{difficulty_level.capitalize}
+      model_settings: ModelSettings(temperature=cfg.execution.model.temperature)
+      output_type: TriageOutput
+      instructions: ['{_default_cfg.triage_system_prompt}', '{_default_cfg.triage_template.format}']
+  orchestrator_agent:
+    type: instance
+    models: [cfg.orchestrate.get]
+    params:
+      function: _create_orchestrator_agent
+      name: OrchestratorAgent
+      output_type: OrchestratorResponse
+      model_settings: ModelSettings(temperature=cfg.orchestrate.get(orchestrator_temperature, cfg.execution.model.temperature))
+      instructions: [get_orchestrator_instructions]
+  triage_agent:
+    type: instance
+    models: [cfg.execution.model.name]
+    params:
+      function: run_triage_agent
+      name: TriageAgent
+      model_settings: ModelSettings(temperature=cfg.execution.model.temperature)
+      handoffs: ['triage_agents[easy]', 'triage_agents[medium]', 'triage_agents[hard]']
+      instructions: ['{_default_cfg.difficulty_system_prompt}', '{_default_cfg.difficulty_template.format}']
+
+models:
+  cfg.execution.model.name:
+    type: variable
+    agents: [agent, agent.create_triage_agent, triage_agent]
+  cfg.orchestrate.get:
+    type: function
+    agents: [orchestrator_agent]
+
+tools:
+  search_medical_knowledge:
+    type: decorator
+    params:
+      description: |-
+        Search for relevant medical knowledge with configurable behavior.
+
+        This is the main search tool that can be configured for different search strategies:
+        - Basic retrieval with optional query rewriting
+        - Document relevance review and filtering
+        - Query similarity checking to avoid duplicates
+        - Configurable sources and result limits
+
+        Args:
+            query: The search query
+            domain: Optional medical domain to focus the search
+
+        Returns:
+            List of relevant document texts
+  search_tools:
+    type: variable
+    agents: [agent]
+    params:
+      dynamic: "True"
+
+teams:
+  triage_agent:
+    type: handoff
+    agents: [triage_agent]
+
+imports:
+  _dataset_name_map: figures0.graphpad_prism_bars._dataset_name_map
+  _make_search_tool_config: expert._make_search_tool_config
+  _openai_shared: agents.models._openai_shared
+  Agent: agents.Agent
+  Any: typing.Any
+  apply_medagents_style: plot_utils.apply_medagents_style
+  apply_standard_plot_formatting: plot_style.apply_standard_plot_formatting
+  argparse: argparse
+  asyncio: asyncio
+  AsyncOpenAI: openai.AsyncOpenAI
+  AutoModel: transformers.AutoModel
+  AutoModelForSequenceClassification: transformers.AutoModelForSequenceClassification
+  AutoTokenizer: transformers.AutoTokenizer
+  BaseModel: pydantic.BaseModel
+  convert_from_path: pdf2image.convert_from_path
+  CosineSimilarity: torch.nn.CosineSimilarity
+  create_search_tool_instance: search_tools.create_search_tool_instance
+  dataclass: dataclasses.dataclass
+  datetime: datetime.datetime
+  Dict: typing.Dict
+  DictConfig: omegaconf.DictConfig
+  ExperimentResult: experiment.ExperimentResult
+  ExperimentSaver: experiment.ExperimentSaver
+  ExpertResult: expert.ExpertResult
+  ExpertRunResult: expert.ExpertRunResult
+  FancyBboxPatch: matplotlib.patches.FancyBboxPatch
+  field: dataclasses.field
+  Field: pydantic.Field
+  format_question: orchestrate.format_question
+  function_tool: agents.function_tool
+  get_background_colors: plot_style.get_background_colors
+  get_color_scheme: plot_style.get_color_scheme
+  get_colors: plot_style.get_colors
+  get_dataset_colors: plot_style.get_dataset_colors
+  get_figure_0_colors: plot_utils.get_figure_0_colors
+  get_figure_1_colors: plot_utils.get_figure_1_colors
+  get_figure_2_colors: figure2.plot_utils.get_figure_2_colors
+  get_line_styles: plot_style.get_line_styles
+  get_manchester_colors: plot_utils.get_manchester_colors
+  get_marker_styles: plot_style.get_marker_styles
+  get_nature_biotechnology_colors: plot_utils.get_nature_biotechnology_colors
+  get_search_tools: search_tools.get_search_tools
+  get_standard_figure_size: plot_style.get_standard_figure_size
+  get_standard_gridspec_params: plot_style.get_standard_gridspec_params
+  handoff: agents.handoff
+  hydra: hydra
+  Image: PIL.Image
+  json: json
+  List: typing.List
+  load_dotenv: dotenv.load_dotenv
+  logging: logging
+  math: math
+  mcolors: matplotlib.colors
+  MedAgents: medagents.MedAgents
+  MedAgentsLog: medagents.MedAgentsLog
+  MedCPTRetriever: retriever.MedCPTRetriever
+  MilvusClient: pymilvus.MilvusClient
+  ModelSettings: agents.ModelSettings
+  mpatches: matplotlib.patches
+  mpimg: matplotlib.image
+  mticker: matplotlib.ticker
+  natsorted: natsort.natsorted
+  nest_asyncio: nest_asyncio
+  np: numpy
+  OmegaConf: omegaconf.OmegaConf
+  Optional: typing.Optional
+  OrchestratorResponse: orchestrate.OrchestratorResponse
+  os: os
+  Path: pathlib.Path
+  pd: pandas
+  PdfPages: matplotlib.backends.backend_pdf.PdfPages
+  plot_agent_scaling_analysis: figure1.agent_scaling_analysis.plot_agent_scaling_analysis
+  plot_component_breakdown_waterfall: figure0.component_breakdown_waterfall.plot_component_breakdown_waterfall
+  plot_comprehensive_search_scatter: figure2.comprehensive_search_scatter.plot_comprehensive_search_scatter
+  plot_cross_talk_dag: figure1.cross_talk_dag.plot_cross_talk_dag
+  plot_dataset_beeswarm: figure0.dataset_beeswarm_plot.plot_dataset_beeswarm
+  plot_dataset_bubble_chart: figure0.dataset_bubble_chart.plot_dataset_bubble_chart
+  plot_discussion_patterns_pdf: figure1.discussion_patterns_display.plot_discussion_patterns_pdf
+  plot_enhanced_orchestration_comparison: figure1.enhanced_orchestration_comparison.plot_enhanced_orchestration_comparison
+  plot_expert_specialty_distribution: figure1.expert_specialty_distribution.plot_expert_specialty_distribution
+  plot_graphpad_prism_bars: figures0.graphpad_prism_bars.plot_graphpad_prism_bars
+  plot_orchestration_comparison: figure1.orchestration_comparison.plot_orchestration_comparison
+  plot_overall_performance_bar: figure0.overall_performance_bar.plot_overall_performance_bar
+  plot_pareto_frontier: figure0.pareto_frontier.plot_pareto_frontier
+  plot_pareto_frontier_models: figures0.pareto_frontier_models.plot_pareto_frontier_models
+  plot_role_play_comparison: figure1.role_play_comparison.plot_role_play_comparison
+  plot_rounds_analysis: figure1.rounds_analysis.plot_rounds_analysis
+  plot_search_features_comparison: figure2.search_features_comparison.plot_search_features_comparison
+  plot_search_history_comparison: figure2.search_history_comparison.plot_search_history_comparison
+  plot_search_modality_comparison: figure2.search_modality_comparison.plot_search_modality_comparison
+  plot_triage_pdf: figure1.triage_display.plot_triage_pdf
+  plot_vote_convergence: figure1.vote_convergence_plot.plot_vote_convergence
+  plt: matplotlib.pyplot
+  random: random
+  RECOMMENDED_PROMPT_PREFIX: agents.extensions.handoff_prompt.RECOMMENDED_PROMPT_PREFIX
+  Rectangle: matplotlib.patches.Rectangle
+  replace: dataclasses.replace
+  run_expert_agent: expert.run_expert_agent
+  run_orchestrator_agent: orchestrate.run_orchestrator_agent
+  run_triage_agent: triage.run_triage_agent
+  RunContextWrapper: agents.RunContextWrapper
+  Runner: agents.Runner
+  RunResult: agents.RunResult
+  SearchConfig: search_tools.SearchConfig
+  SearchTool: search_tools.SearchTool
+  set_default_openai_client: agents.set_default_openai_client
+  set_plot_style: plot_style.set_plot_style
+  set_tracing_disabled: agents.set_tracing_disabled
+  sns: seaborn
+  sys: sys
+  Tensor: torch.Tensor
+  torch: torch
+  traceback: traceback
+  TriageOutput: triage.TriageOutput
+  Tuple: typing.Tuple
+  Usage: agents.Usage
+  uuid: uuid
+  WebSearchTool: agents.WebSearchTool
+
+functions:
+  __init__:
+    type: sync
+    module: retriever
+    args: [self, client, device, config]
+  __post_init__:
+    type: sync
+    module: search_tools
+    args: [self]
+  _add_usage_stat:
+    type: sync
+    module: medagents
+    args: [self, agent_name, agent_type, usage, round_num, expert_name]
+  _batch_encode:
+    type: sync
+    module: retriever
+    args: [self, texts]
+    params:
+      returns: Tensor
+  _build_debate_question:
+    type: sync
+    module: medagents
+    args: [self, formatted_question, discussion_mode, round_num, expert_index, prev_answers, triage, orchestrator_feedback,
+      expert_profile]
+  _build_expert_profile:
+    type: sync
+    module: medagents
+    args: [self, profile, job_title, research_focus]
+  _calculate_final_decision:
+    type: sync
+    module: medagents
+    args: [self, expert_results, options]
+    params:
+      returns: Dict
+  _calculate_metrics:
+    type: sync
+    module: experiment
+    args: [self]
+    params:
+      returns: Dict
+  _calculate_total_usage:
+    type: sync
+    module: medagents
+    args: [self]
+  _check_query_similarity:
+    type: sync
+    module: search_tools
+    args: [self, query]
+    params:
+      returns: Dict
+  _create_orchestrator_agent:
+    type: sync
+    module: orchestrate
+    args: [cfg]
+    params:
+      returns: Agent[OrchestratorContext]
+  _create_placeholder_figure:
+    type: sync
+    module: figures.figure0.main_figure_display
+    args: [ax, panel_label]
+  _dataset_name_map:
+    type: sync
+    module: figures.figures0.graphpad_prism_bars
+  _evaluate_document_relevance:
+    type: async
+    module: search_tools
+    args: [self, document, query, domain]
+    params:
+      returns: Dict
+  _generate_distinct_query:
+    type: async
+    module: search_tools
+    args: [self, original_query, previous_queries, domain]
+    params:
+      returns: str
+  _get_milvus_client:
+    type: sync
+    module: search_tools
+    args: [self]
+  _get_openai_client:
+    type: sync
+    module: search_tools
+    args: [self]
+  _get_retriever:
+    type: sync
+    module: search_tools
+    args: [self]
+  _load_existing_results:
+    type: sync
+    module: experiment
+    args: [self]
+  _make_search_tool_config:
+    type: sync
+    module: expert
+    args: [cfg]
+  _mean_of:
+    type: sync
+    module: figures.figure0.component_breakdown_waterfall
+    args: [df, mask, col]
+  _parse_agent_cfg:
+    type: sync
+    module: figures.figure0.component_breakdown_waterfall
+    args: [exp_name]
+  _prepare_context:
+    type: sync
+    module: medagents
+    args: [self, n_experts, discussion_mode]
+  _rewrite_query:
+    type: async
+    module: search_tools
+    args: [self, query, domain]
+    params:
+      returns: str
+  _run_single_expert:
+    type: async
+    module: medagents
+    args: [self, expert_index, profile, debate_question, session_id, search_tool, round_num, difficulty_level]
+    params:
+      returns: ExpertRunResult
+  _search:
+    type: sync
+    module: retriever
+    args: [self, collection, embedding, topk]
+  add_result:
+    type: sync
+    module: experiment
+    args: [self, result]
+  apply_medagents_style:
+    type: sync
+    module: figures.figure2.plot_utils
+  apply_standard_plot_formatting:
+    type: sync
+    module: figures.plot_style
+    args: [ax, panel_label, grid_alpha, grid_linewidth, background_color, fontsize, pad]
+  calculate_query_similarity:
+    type: sync
+    module: retriever
+    args: [self, current, previous]
+    params:
+      returns: Tuple
+  create_expert_agent:
+    type: sync
+    module: expert
+    args: [cfg, search_tool, tool_choice, difficulty_level]
+    params:
+      returns: Agent[ExpertContext]
+  create_figure_0:
+    type: sync
+    module: figures.0
+  create_figure_1:
+    type: sync
+    module: figures.1
+  create_figure_2:
+    type: sync
+    module: figures.2
+  create_figures:
+    type: sync
+    module: figures.s0
+  create_search_tool_instance:
+    type: sync
+    module: search_tools
+    args: [config]
+    params:
+      returns: SearchTool
+  create_triage_agent:
+    type: sync
+    module: triage
+    args: [difficulty_level]
+  cross_model:
+    type: sync
+    module: retriever
+    args: [self]
+  cross_tokenizer:
+    type: sync
+    module: retriever
+    args: [self]
+  encode:
+    type: sync
+    module: retriever
+    args: [self, query]
+    params:
+      returns: Tensor
+  extract_official_specialty:
+    type: sync
+    module: figures.1. agent_configuration
+    args: [job_title]
+  format_question:
+    type: sync
+    module: orchestrate
+    args: [question, options]
+    params:
+      returns: str
+  format_question_for_display:
+    type: sync
+    module: main
+    args: [question, options]
+    params:
+      returns: str
+  from_medagents_log:
+    type: sync
+    module: experiment
+    args: [cls, realidx, question, options, answer_idx, difficulty, time_taken, medagents_log]
+    params:
+      returns: ExperimentResult
+  get_background_colors:
+    type: sync
+    module: figures.plot_style
+  get_categorical_colors:
+    type: sync
+    module: figures.plot_style
+    args: [n_colors, theme]
+  get_color_scheme:
+    type: sync
+    module: figures.plot_style
+    args: [figure_type, theme]
+  get_colors:
+    type: sync
+    module: figures.plot_style
+    args: [theme]
+  get_dataset_colors:
+    type: sync
+    module: figures.plot_style
+    args: [theme]
+  get_expert_instructions:
+    type: sync
+    module: expert
+    args: [context_wrapper, _]
+    params:
+      returns: str
+  get_feature_level:
+    type: sync
+    module: figures.2. search_ablation
+    args: [exp_name]
+  get_figure_0_colors:
+    type: sync
+    module: figures.figure2.plot_utils
+  get_figure_1_colors:
+    type: sync
+    module: figures.figure2.plot_utils
+  get_figure_2_colors:
+    type: sync
+    module: figures.figure2.plot_utils
+  get_history_type:
+    type: sync
+    module: figures.2. search_ablation
+    args: [exp_name]
+  get_line_styles:
+    type: sync
+    module: figures.plot_style
+  get_manchester_colors:
+    type: sync
+    module: figures.figure2.plot_utils
+  get_marker_styles:
+    type: sync
+    module: figures.plot_style
+  get_medical_specialties:
+    type: sync
+    module: triage
+    args: [cfg]
+    params:
+      returns: List[str]
+  get_nature_biotechnology_colors:
+    type: sync
+    module: figures.figure1.plot_utils
+  get_orchestrator_instructions:
+    type: sync
+    module: orchestrate
+    args: [context_wrapper, _]
+    params:
+      returns: str
+  get_pnas_figure_size:
+    type: sync
+    module: figures.plot_style
+    args: [layout]
+  get_previous_queries:
+    type: sync
+    module: search_tools
+    args: [self, max_length, max_queries]
+    params:
+      returns: str
+  get_processed_realidx:
+    type: sync
+    module: experiment
+    args: [self]
+    params:
+      returns: set
+  get_search_function:
+    type: sync
+    module: search_tools
+    args: [self]
+  get_search_modality:
+    type: sync
+    module: figures.2. search_ablation
+    args: [exp_name]
+  get_search_tools:
+    type: sync
+    module: search_tools
+    args: [search_tool]
+    params:
+      returns: List
+  get_sequential_colors:
+    type: sync
+    module: figures.plot_style
+    args: [n_colors, theme]
+  get_standard_figure_size:
+    type: sync
+    module: figures.plot_style
+  get_standard_gridspec_params:
+    type: sync
+    module: figures.plot_style
+  get_usage_by_type:
+    type: sync
+    module: medagents
+    args: [self]
+    params:
+      returns: Dict
+  interactive_mode:
+    type: sync
+    module: main
+    args: [cfg]
+  load_jsonl:
+    type: sync
+    module: run_experiments
+    args: [file_path]
+    params:
+      returns: List[Dict]
+  load_questions_from_file:
+    type: sync
+    module: main
+    args: [file_path]
+    params:
+      returns: List[Dict]
+  main:
+    type: sync
+    module: figures.figure0.overall_performance_bar
+  parse_exp_name:
+    type: sync
+    module: figures.1. agent_configuration
+    args: [exp_name]
+  parse_exp_name_rounds:
+    type: sync
+    module: figures.figure1.rounds_analysis
+    args: [exp_name]
+  plot_agent_scaling_analysis:
+    type: sync
+    module: figures.figure1.agent_scaling_analysis
+    args: [ax, df, colors, panel_label]
+  plot_component_breakdown_waterfall:
+    type: sync
+    module: figures.figure0.component_breakdown_waterfall
+    args: [ax, df, role_play_df, orchestration_df, colors, panel_label]
+  plot_comprehensive_search_scatter:
+    type: sync
+    module: figures.figure2.comprehensive_search_scatter
+    args: [ax, df, colors, panel_label]
+  plot_cross_talk_dag:
+    type: sync
+    module: figures.figure1.cross_talk_dag
+    args: [ax, crosstalk_df, colors, panel_label]
+  plot_dataset_beeswarm:
+    type: sync
+    module: figures.figure0.dataset_beeswarm_plot
+    args: [ax, df, colors, panel_label]
+  plot_dataset_bubble_chart:
+    type: sync
+    module: figures.figure0.dataset_bubble_chart
+    args: [ax, df, colors, panel_label]
+  plot_discussion_patterns_pdf:
+    type: sync
+    module: figures.figure1.discussion_patterns_display
+    args: [ax, pdf_path, panel_label]
+  plot_enhanced_orchestration_comparison:
+    type: sync
+    module: figures.figure1.enhanced_orchestration_comparison
+    args: [ax, orchestration_df, colors, panel_label]
+  plot_expert_specialty_distribution:
+    type: sync
+    module: figures.figure1.expert_specialty_distribution
+    args: [ax, expert_profiles_df, colors, panel_label]
+  plot_graphpad_prism_bars:
+    type: sync
+    module: figures.figures0.graphpad_prism_bars
+    args: [ax, raw, colors, panel_label]
+  plot_main_figure_pdf:
+    type: sync
+    module: figures.figure0.main_figure_display
+    args: [ax, pdf_path, panel_label]
+  plot_orchestration_comparison:
+    type: sync
+    module: figures.figure1.orchestration_comparison
+    args: [ax, orchestration_df, colors, panel_label]
+  plot_overall_performance_bar:
+    type: sync
+    module: figures.figure0.overall_performance_bar
+    args: [ax, df, colors, panel_label]
+  plot_pareto_frontier:
+    type: sync
+    module: figures.figure0.pareto_frontier
+    args: [ax, df, colors, panel_label]
+  plot_pareto_frontier_models:
+    type: sync
+    module: figures.figures0.pareto_frontier_models
+    args: [raw, colors, panel_label]
+  plot_role_play_comparison:
+    type: sync
+    module: figures.figure1.role_play_comparison
+    args: [ax, role_play_df, colors, panel_label]
+  plot_rounds_analysis:
+    type: sync
+    module: figures.figure1.rounds_analysis
+    args: [ax, df, colors, panel_label]
+  plot_search_features_comparison:
+    type: sync
+    module: figures.figure2.search_features_comparison
+    args: [ax, df, colors, panel_label]
+  plot_search_history_comparison:
+    type: sync
+    module: figures.figure2.search_history_comparison
+    args: [ax, df, colors, panel_label]
+  plot_search_modality_comparison:
+    type: sync
+    module: figures.figure2.search_modality_comparison
+    args: [ax, df, colors, panel_label]
+  plot_triage_pdf:
+    type: sync
+    module: figures.figure1.triage_display
+    args: [ax, pdf_path, panel_label]
+  plot_vote_convergence:
+    type: sync
+    module: figures.figure1.vote_convergence_plot
+    args: [ax, df, panel_label]
+  print_color_palette:
+    type: sync
+    module: figures.plot_style
+  process_all:
+    type: async
+    module: run_experiments
+  process_query:
+    type: async
+    module: run_experiments
+    args: [problem, cfg, process_idx, few_shot_examples]
+    params:
+      returns: ExperimentResult
+  query_model:
+    type: sync
+    module: retriever
+    args: [self]
+  query_tokenizer:
+    type: sync
+    module: retriever
+    args: [self]
+  rerank:
+    type: sync
+    module: retriever
+    args: [self, query, docs]
+    params:
+      returns: List[str]
+  retrieve:
+    type: sync
+    module: retriever
+    args: [self, query, topk, sources]
+    params:
+      returns: List[str]
+  retrieve_filtered_sources:
+    type: sync
+    module: retriever
+    args: [self, query, client, allowed_sources, topk]
+    params:
+      returns: List[str]
+  run:
+    type: async
+    module: medagents
+    args: [self, question, options, difficulty]
+    params:
+      returns: MedAgentsLog
+  run_batch_experiments:
+    type: async
+    module: main
+    args: [questions, cfg, difficulty, output_path]
+    params:
+      returns: List[Dict]
+  run_expert_agent:
+    type: async
+    module: expert
+    args: [question, expert_profile, cfg, session_id, search_tool, difficulty_level]
+    params:
+      returns: ExpertRunResult
+  run_orchestrator_agent:
+    type: async
+    module: orchestrate
+    args: [expert_results, question, options, round_num, current_decision, cfg]
+    params:
+      returns: OrchestratorRunResult
+  run_single_experiment:
+    type: async
+    module: main
+    args: [question, options, cfg, difficulty]
+    params:
+      returns: Dict
+  run_triage_agent:
+    type: async
+    module: triage
+    args: [question, cfg]
+  save_results:
+    type: sync
+    module: main
+    args: [results, output_path]
+  search_medical_knowledge:
+    type: tool
+    module: search_tools
+    args: [query, domain]
+    params:
+      returns: List[str]
+  serialize_expert_result:
+    type: sync
+    module: medagents
+    args: [er]
+  serialize_orchestrator_feedback:
+    type: sync
+    module: medagents
+    args: [feedback]
+  serialize_usage:
+    type: sync
+    module: medagents
+    args: [usage_obj]
+  set_plot_style:
+    type: sync
+    module: figures.plot_style
+  setup_openai_client:
+    type: sync
+    module: run_experiments
+  to_dict:
+    type: sync
+    module: medagents
+    args: [self]
+    params:
+      returns: Dict
+  update_config:
+    type: sync
+    module: triage
+  update_expert_agent_config:
+    type: sync
+    module: expert
+  update_search_config:
+    type: sync
+    module: search_tools
+
+variables:
+  MILVUS_URI:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [search_tools]
+  OPENAI_API_KEY:
+    type: env
+    params:
+      caller: [os.getenv, AsyncOpenAI]
+      path: [main, medagents, run_experiments]
+  OPENAI_ENDPOINT:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [main, medagents, run_experiments]
+
+files:
+  config.yaml:
+    type: literal
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      path: [output_dir]
+  config_file:
+    type: variable
+    actions: [write]
+    params:
+      caller: [open]
+      alias: [f]
+  discussion_patterns.pdf:
+    type: literal
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      path: [current_dir]
+  file_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open, json.load]
+      alias: [f]
+  logs.json:
+    type: literal
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      path: [output_dir]
+  main_figure.pdf:
+    type: literal
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      path: [current_dir]
+  metrics.json:
+    type: literal
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      path: [output_dir]
+  output_dir:
+    type: variable
+    actions: [read]
+    params:
+      caller: [os.makedirs]
+  output_path:
+    type: variable
+    actions: [write]
+    params:
+      caller: [open]
+      alias: [f]
+  summary.json:
+    type: literal
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      path: [output_dir]
+  triage.pdf:
+    type: literal
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      path: [current_dir]
+  usage.json:
+    type: literal
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      path: [output_dir]
