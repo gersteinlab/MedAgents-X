@@ -3,13 +3,18 @@
 From the repository root, start Milvus 2.5.6 with the included script:
 
 ```bash
-cd retrieval
-bash standalone_embed.sh start
+bash retrieval/milvus.sh start
 ```
 
-The script uses `retrieval/volumes/milvus`. Always run it from `retrieval/`.
-Set `MILVUS_URI=http://localhost:19530` and `DEVICE=cpu` (or `cuda`) in `.env`.
-Stop it with `bash standalone_embed.sh stop`.
+The script resolves paths relative to itself, uses `retrieval/volumes/milvus`,
+and binds ports to localhost. It preserves existing YAML configuration and
+waits up to 180 seconds for health. Set `MILVUS_URI=http://localhost:19530` and
+`DEVICE=cpu` (or `cuda`) in `.env`.
+
+Use `bash retrieval/milvus.sh stop`, `status`, or `remove`; removal only deletes a
+stopped container and retains its data. `MILVUS_CONTAINER` and `MILVUS_DATA_DIR`
+select another container name or absolute data directory. To change mounts,
+stop/remove the old container, then start it with the new settings.
 
 ## Restore an existing database
 
@@ -28,8 +33,9 @@ Each corpus lives under `retrieval/corpus/<name>/`:
 - `json/`: text and metadata associated with embeddings
 
 ```bash
-cd retrieval
-bash upload_all.sh
+python retrieval/upload_corpus.py
+# Or selected sources:
+python retrieval/upload_corpus.py --corpus cpg textbooks
 ```
 
 This inserts data into `cpg`, `recop`, `textbooks`, and `statpearls`. Use a fresh

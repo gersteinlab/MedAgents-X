@@ -1,6 +1,137 @@
-# Compose all config groups
-defaults:
-  - search: default
-  - orchestrate: default
-  - triage: default
-  - execution: default
+execution:
+  # Execution configuration
+  experiment_name: baseline  # Name for this ablation experiment
+
+  output:
+    folder: ./output
+
+  experiments:
+    run_id: 0
+
+  dataset:
+    name: medqa
+    dir: ./data
+    split: test_hard
+
+  model:
+    name: gpt-4o-mini
+    temperature: 0.0
+
+
+triage:
+  # Triage (difficulty-based agent discussion settings)
+  experiment_name: baseline  # Name for this ablation experiment
+
+  disable_triage: false  # If true, triage agent is bypassed and forced_level is used
+  forced_level: easy     # Options: easy, medium, hard, custom
+
+  # Custom forced level for ablation studies. Set forced_level: custom to use this block.
+  forced_level_custom:
+    num_experts: 2       # Set any value for ablation
+    max_rounds: 3        # Set any value for ablation
+    search_mode: required # [required, auto, none]
+
+  # Standard triage settings
+
+  easy:
+    num_experts: 2
+    max_rounds: 1
+    search_mode: none
+
+  medium:
+    num_experts: 3
+    max_rounds: 2
+    search_mode: auto
+
+  hard:
+    num_experts: 3
+    max_rounds: 3
+    search_mode: required
+
+
+orchestrate:
+  # Orchestrate (agent coordination) configuration
+  # Discussion modes:
+  # - group_chat_with_orchestrator: Experts can see other experts' responses and get orchestrator feedback
+  # - group_chat_voting_only: Experts can see other experts' responses but no orchestrator (voting only)
+  # - one_on_one_sync: Experts only get orchestrator feedback, not other experts' responses (still multi-expert)
+  discussion_mode: group_chat_with_orchestrator
+
+  orchestrator:
+    model: ${execution.model.name}
+    temperature: ${execution.model.temperature}
+    max_turns: 1
+
+  medical_specialties:
+    - Internal Medicine
+    - Cardiology
+    - Neurology
+    - Emergency Medicine
+    - Infectious Disease
+    - Pediatrics
+    - Endocrinology
+    - Pharmacology
+    - Pulmonology
+    - Gastroenterology
+    - Hematology
+    - Radiology
+    - Nephrology
+    - Psychiatry
+    - Oncology
+    - Genetics
+    - Dermatology
+    - Pathology
+    - Geriatrics
+    - Immunology
+    - Rheumatology
+    - Urology
+    - Obstetrics and Gynecology
+    - Surgery
+    - Preventive Medicine
+    - Critical Care Medicine
+    - Toxicology
+    - Anesthesiology
+    - Neurosurgery
+    - Family Medicine
+    - Vascular Medicine
+    - Ophthalmology
+    - Orthopedics
+    - Occupational Medicine
+    - Sports Medicine
+    - Public Health
+    - Clinical Research
+    - Sleep Medicine
+    - Allergy and Immunology
+    - Biostatistics
+    - Medical Ethics
+    - Neonatology
+    - Nutrition
+    - Epidemiology
+    - Rehabilitation Medicine
+    - Sexual Health
+    - Reproductive Medicine
+    - Transplant Medicine
+    - Clinical Pathology
+
+
+search:
+  # Search (retrieval) hyperparameters
+  experiment_name: baseline  # Name for this ablation experiment
+
+  milvus:
+    uri: ${oc.env:MILVUS_URI,"http://localhost:19530"}
+  hardware:
+    device: ${oc.env:DEVICE,"cpu"}
+  allowed_sources: [cpg, statpearls, recop, textbooks]
+  topk:
+    retrieve: 100
+    rerank: 20
+  similarity:
+    threshold: 0.85
+    strategy: reuse   # [reuse, generate, none]
+  rewrite: true
+  review: false
+  relevance:
+    threshold: 5
+  search_history: none   # [none, individual, shared]
+  search_mode: both # [both, web, vector]
