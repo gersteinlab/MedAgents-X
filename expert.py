@@ -5,19 +5,13 @@ This module provides an expert agent that can answer medical questions directly
 using search tools and expert knowledge. The agent has a profile from the triage agent
 and provides comprehensive medical answers.
 """
-import os
-import asyncio
-import nest_asyncio
-nest_asyncio.apply()
 
 import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-import hydra
-from omegaconf import DictConfig, OmegaConf
-from openai import AsyncOpenAI
-from agents import Agent, Runner, RunResult, WebSearchTool, ModelSettings, RunContextWrapper, set_default_openai_client, set_tracing_disabled, Usage
+from omegaconf import DictConfig
+from agents import Agent, Runner, WebSearchTool, ModelSettings, RunContextWrapper, Usage
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 from pydantic import BaseModel, Field
 
@@ -33,13 +27,7 @@ class ExpertContext:
     question: str
     session_id: str = None
 
-@dataclass
-class ExpertAgentConfig:
-    """Configuration for the expert agent."""
-    model_name: str = "gpt-4o-mini"
-    temperature: float = 0.1
-    system_prompt: str = f"{RECOMMENDED_PROMPT_PREFIX}\nYou are a medical expert specialist. You must provide your final answer in a single response. Do not ask for clarification or additional information."
-    tool_choice: str = "required"  # "required", "optional", "none"
+EXPERT_SYSTEM_PROMPT = f"{RECOMMENDED_PROMPT_PREFIX}\nYou are a medical expert specialist. You must provide your final answer in a single response. Do not ask for clarification or additional information."
 
 class ExpertResponse(BaseModel):
     thought: str = Field(..., description="The agent's chain-of-thought reasoning")
@@ -73,19 +61,9 @@ class ExpertResult:
     weight: float
     round_num: int
 
-_default_cfg = ExpertAgentConfig()
-
-def update_expert_agent_config(**kwargs):
-    """Update the global expert agent configuration."""
-    global _default_cfg
-    for key, value in kwargs.items():
-        if hasattr(_default_cfg, key):
-            setattr(_default_cfg, key, value)
-
 def create_expert_agent(
     cfg: DictConfig,
     search_tool: SearchTool,
-    tool_choice: Optional[str] = None,
     difficulty_level: Optional[str] = None
 ) -> Agent[ExpertContext]:
     """
@@ -93,34 +71,19 @@ def create_expert_agent(
     """
     # Determine tool_choice and tool availability based on search_mode
     search_mode = None
-    if difficulty_level and hasattr(cfg, 'triage') and difficulty_level in cfg.triage:
-        search_mode = cfg.triage[difficulty_level].get('search_mode', 'auto')
+    if difficulty_level:
+        level_config = cfg.triage.forced_level_custom if difficulty_level == 'custom' else cfg.triage[difficulty_level]
+        search_mode = level_config.search_mode
     # Check cfg.search.search_mode to determine search tool availability
     config_search_mode = cfg.search.get('search_mode', 'both')
     
-    if search_mode == 'required':
-        tool_choice = 'required'
-        if config_search_mode == 'both':
-            search_tools = get_search_tools(search_tool=search_tool)
-        elif config_search_mode == 'vector':
-            search_tools = get_search_tools(search_tool=search_tool)
-        elif config_search_mode == 'web':
-            search_tools = [WebSearchTool()]
-        else:
-            search_tools = []
-    elif search_mode == 'auto':
-        tool_choice = 'auto'
-        if config_search_mode == 'both':
-            search_tools = get_search_tools(search_tool=search_tool)
-        elif config_search_mode == 'vector':
-            search_tools = get_search_tools(search_tool=search_tool)
-        elif config_search_mode == 'web':
-            search_tools = [WebSearchTool()]
-        else:
-            search_tools = []
-    else:  # none
-        tool_choice = None
-        search_tools = []
+    search_tools = []
+    tool_choice = search_mode if search_mode in ('required', 'auto') else None
+    if tool_choice:
+        if config_search_mode in ('both', 'vector'):
+            search_tools.extend(get_search_tools(search_tool=search_tool))
+        if config_search_mode in ('both', 'web'):
+            search_tools.append(WebSearchTool())
 
     def get_expert_instructions(context_wrapper: RunContextWrapper[ExpertContext], _: Agent[ExpertContext]) -> str:
         expert_profile = context_wrapper.context.expert_profile
@@ -145,7 +108,7 @@ def create_expert_agent(
                     tool_descriptions.append("- search_medical_knowledge: Search for relevant medical information with configurable parameters")
         
         instructions = (
-            f"{_default_cfg.system_prompt}\n\n"
+            f"{EXPERT_SYSTEM_PROMPT}\n\n"
             f"You are {name}, {job_title}.\n\n"
             f"Your Profile:\n"
             f"- Past Experience: {past_experience}\n"
@@ -217,25 +180,25 @@ def create_expert_agent(
     return agent
 
 def _make_search_tool_config(cfg):
-    search_config = SearchConfig()
-    if hasattr(cfg, 'search'):
-        search_config.rewrite = getattr(cfg.search, 'rewrite', False)  # config: search.rewrite
-        search_config.review = getattr(cfg.search, 'review', False)    # config: search.review
-        search_config.allowed_sources = getattr(cfg.search, 'allowed_sources', ['cpg', 'statpearls', 'recop', 'textbooks'])
-        search_config.similarity_strategy = getattr(cfg.search, 'similarity_strategy', 'reuse')
-        search_config.query_similarity_threshold = getattr(cfg.search, 'query_similarity_threshold', 0.85)
-        search_config.retrieve_topk = getattr(cfg.search, 'retrieve_topk', 100)
-        search_config.rerank_topk = getattr(cfg.search, 'rerank_topk', 25)
-        search_config.cache_size = getattr(cfg.search, 'cache_size', 100)
-        search_config.max_concurrent_searches = getattr(cfg.search, 'max_concurrent_searches', 3)
-        search_config.relevance_threshold = getattr(cfg.search, 'relevance_threshold', 5)
-        search_config.search_history = getattr(cfg.search, 'search_history', 'individual')
-    return search_config
+    search = cfg.search
+    return SearchConfig(
+        model_name=cfg.execution.model.name,
+        milvus_uri=search.milvus.uri,
+        device=search.hardware.device,
+        allowed_sources=(None if search.allowed_sources == 'all' else list(search.allowed_sources)),
+        retrieve_topk=search.topk.retrieve,
+        rerank_topk=search.topk.rerank,
+        similarity_strategy=search.similarity.strategy,
+        query_similarity_threshold=search.similarity.threshold,
+        rewrite=search.rewrite,
+        review=search.review,
+        relevance_threshold=search.relevance.threshold,
+    )
 
 async def run_expert_agent(
     question: str,
     expert_profile: Dict[str, Any],
-    cfg: Optional[DictConfig] = None,
+    cfg: DictConfig,
     session_id: str = None,
     search_tool: Optional[SearchTool] = None,
     difficulty_level: Optional[str] = None
@@ -244,24 +207,6 @@ async def run_expert_agent(
     Run the expert agent to answer a medical question.
     If search_tool is provided, use it; otherwise, create a new one from config.
     """
-    if cfg is None:
-        cfg = OmegaConf.create({
-            'execution': {'model': {'name': 'gpt-4o-mini', 'temperature': 0.1}},
-            'search': {
-                'tool_choice': 'required',
-                'search_history': "individual",
-                'search_tools': {
-                    'auto_rewrite': False,
-                    'auto_review': False,
-                    'allowed_sources': ['cpg', 'statpearls', 'recop', 'textbooks'],
-                    'similarity_strategy': 'reuse',
-                    'query_similarity_threshold': 0.85,
-                    'relevance_threshold': 5,
-                    'max_concurrent_searches': 3,
-                    'cache_size': 100
-                }
-            }
-        })
     # Create or use provided search tool
     if search_tool is None:
         search_config = _make_search_tool_config(cfg)
@@ -286,43 +231,12 @@ async def run_expert_agent(
         f"Use 'low' confidence when you have doubts, 'medium' when reasonably sure, and 'high' only when very certain.\n\n"
         f"This is your only opportunity to respond - make it complete and definitive."
     )
-    result = None
-    for _ in range(5):
-        try:
-            result = await Runner.run(
-                starting_agent=expert_agent,
-                input=input_text,
-                context=context,
-                max_turns=5,
-            )
-            break
-        except Exception:
-            pass
-
-    if result is not None and isinstance(result.final_output, ExpertResponse):
-        expert_response = result.final_output
-    else:
-        logger.warning("Expert agent didn't return expected ExpertResponse format")
-        expert_response = ExpertResponse(
-            thought="Unable to process response properly",
-            answer="A",
-            confidence="low",
-            evidences=[],
-            justification="Error in response processing"
-        )
-    if result is not None:
-        total_usage = Usage()
-        for raw_response in result.raw_responses:
-            total_usage.add(raw_response.usage)
-    return ExpertRunResult(
-        response=expert_response,
-        usage=total_usage if result is not None else None,
-        search_tool=search_tool
+    result = await Runner.run(
+        starting_agent=expert_agent, input=input_text, context=context, max_turns=5
     )
-
-def format_question(question: str, options: Dict[str, str]) -> str:
-    """Format question and options for all agents (standardized)."""
-    text = f"{question}\n\n"
-    for key, value in options.items():
-        text += f"({key}) {value}\n"
-    return text
+    if not isinstance(result.final_output, ExpertResponse):
+        raise TypeError("Expert agent did not return ExpertResponse")
+    total_usage = Usage()
+    for raw_response in result.raw_responses:
+        total_usage.add(raw_response.usage)
+    return ExpertRunResult(result.final_output, total_usage, search_tool)

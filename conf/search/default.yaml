@@ -4,7 +4,7 @@ experiment_name: baseline  # Name for this ablation experiment
 milvus:
   uri: ${oc.env:MILVUS_URI,"http://localhost:19530"}
 hardware:
-  device: ${oc.env:DEVICE,"cuda"}
+  device: ${oc.env:DEVICE,"cpu"}
 allowed_sources: [cpg, statpearls, recop, textbooks]
 topk:
   retrieve: 100
@@ -14,10 +14,6 @@ similarity:
   strategy: reuse   # [reuse, generate, none]
 rewrite: true
 review: false
-cache:
-  size: 100
-concurrency:
-  max_searches: 3
 relevance:
   threshold: 5
 search_history: none   # [none, individual, shared]

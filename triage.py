@@ -1,19 +1,11 @@
-import os
-import asyncio
-import nest_asyncio
-nest_asyncio.apply()
 
-from dataclasses import dataclass, replace
-from typing import Dict, List
-from dotenv import load_dotenv
-import hydra
+from dataclasses import dataclass
+from typing import List
 from pydantic import BaseModel, Field
 from omegaconf import DictConfig
 from natsort import natsorted
-from omegaconf import OmegaConf
 
-from openai import AsyncOpenAI
-from agents import Agent, Runner, RunResult, ModelSettings, handoff, set_default_openai_client, set_tracing_disabled, Usage
+from agents import Agent, Runner, ModelSettings, handoff, Usage
 from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
 
 # ——————————————————————————————————————————————
@@ -40,8 +32,6 @@ class TriageOutput(BaseModel):
  
 @dataclass
 class TriageConfig:
-    model_name: str = "gpt-4o"
-    temperature: float = 0.1
     difficulty_system_prompt: str = f"{RECOMMENDED_PROMPT_PREFIX}\nYou are a medical education specialist and triage coordinator."
     difficulty_template: str = (
         "You need to complete the following steps:\n\n"
@@ -77,10 +67,6 @@ class TriageRunResult:
     usage: Usage
 
 _default_cfg = TriageConfig()
-
-def update_config(**kwargs):
-    global _default_cfg
-    _default_cfg = replace(_default_cfg, **kwargs)
 
 def get_medical_specialties(cfg: DictConfig) -> List[str]:
     specialties = cfg.get('orchestrate', {}).get('medical_specialties', [])
@@ -147,16 +133,11 @@ async def run_triage_agent(question: str, cfg: DictConfig):
     }
     
     if forced_level and forced_level in triage_agents:
-        while True:
-            try:
-                result = await Runner.run(
-                    starting_agent=triage_agents[forced_level],
-                    input=question,
-                    context={},
-                )
-                break
-            except Exception:
-                await asyncio.sleep(1)
+        result = await Runner.run(
+            starting_agent=triage_agents[forced_level],
+            input=question,
+            context={},
+        )
     else:
         triage_agent = Agent(
             name="TriageAgent",
@@ -187,16 +168,11 @@ async def run_triage_agent(question: str, cfg: DictConfig):
             ]
         )
         
-        while True:
-            try:
-                result = await Runner.run(
-                    starting_agent=triage_agent,
-                    input=question,
-                    context={},
-                )
-                break
-            except Exception:
-                await asyncio.sleep(1)
+        result = await Runner.run(
+            starting_agent=triage_agent,
+            input=question,
+            context={},
+        )
 
     total_usage = Usage()
     for raw_response in result.raw_responses:
@@ -205,10 +181,3 @@ async def run_triage_agent(question: str, cfg: DictConfig):
         response=result.final_output,
         usage=total_usage
     )
-
-def format_question(question: str, options: Dict[str, str]) -> str:
-    """Format question and options for all agents (standardized)."""
-    text = f"{question}\n\n"
-    for key, value in options.items():
-        text += f"({key}) {value}\n"
-    return text

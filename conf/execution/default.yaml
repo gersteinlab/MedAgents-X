@@ -1,21 +1,11 @@
 # Execution configuration
 experiment_name: baseline  # Name for this ablation experiment
 
-batch:
-  num_processes: 1
-  gpu_ids: [0, 1, 2, 3]
-  device: cuda
-  seed: 42
-
 output:
   folder: ./output
-  save_intermediate: true
-  log_level: INFO
 
 experiments:
   run_id: 0
-  splice_length: 500
-  agent_memory: true
 
 dataset:
   name: medqa
@@ -25,8 +15,3 @@ dataset:
 model:
   name: gpt-4o-mini
   temperature: 0.0
-  top_p: 0.95
-  max_tokens: 16384
-  presence_penalty: 0.0
-  frequency_penalty: 0.0
-  max_retries: 5  

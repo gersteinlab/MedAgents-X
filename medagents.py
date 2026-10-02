@@ -2,20 +2,15 @@ import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import uuid
-import json
 
 from triage import run_triage_agent, TriageOutput
 from expert import run_expert_agent, ExpertRunResult, ExpertResult, create_search_tool_instance, _make_search_tool_config
 from orchestrate import (
     OrchestratorResponse, format_question, run_orchestrator_agent
 )
-import hydra
-from openai import AsyncOpenAI
-from agents import set_default_openai_client, set_tracing_disabled, Usage
-from dotenv import load_dotenv
-import os
+from agents import Usage
 
 logger = logging.getLogger(__name__)
 
@@ -159,16 +154,6 @@ class MedAgents:
                 total_usage.add(agent_usage.usage)
         self.log.total_usage = total_usage
 
-    def get_usage_by_type(self) -> Dict[str, Usage]:
-        """Get usage statistics grouped by agent type."""
-        usage_by_type = {}
-        for agent_usage in self.log.usage_stats:
-            agent_type = agent_usage.agent_type
-            if agent_type not in usage_by_type:
-                usage_by_type[agent_type] = Usage()
-            usage_by_type[agent_type].add(agent_usage.usage)
-        return usage_by_type
-
     def _prepare_context(self, n_experts, discussion_mode):
         search_config = _make_search_tool_config(self.cfg)
         if discussion_mode == 'group_chat_with_orchestrator':
@@ -295,7 +280,9 @@ class MedAgents:
     async def run(self, question: str, options: Dict[str, str], difficulty: str = None) -> MedAgentsLog:
         logger.info(f"Starting multi-agent discussion with {len(options)} options")
         formatted_question = format_question(question, options)
-        triage_result = await run_triage_agent(formatted_question, self.cfg)
+        triage_cfg = (OmegaConf.merge(self.cfg, {'triage': {'forced_level': difficulty}})
+                      if difficulty else self.cfg)
+        triage_result = await run_triage_agent(formatted_question, triage_cfg)
         self._add_usage_stat(
             agent_name="TriageAgent",
             agent_type="triage",
@@ -307,7 +294,8 @@ class MedAgents:
         discussion_mode = getattr(self.cfg.orchestrate, 'discussion_mode', 'group_chat_with_orchestrator')
         if difficulty is None:
             difficulty = getattr(triage_result.response, 'difficulty', None) or 'medium'
-        max_rounds = self.cfg.triage[difficulty]['max_rounds'] if difficulty in self.cfg.triage else 2
+        level_config = self.cfg.triage.forced_level_custom if difficulty == 'custom' else self.cfg.triage[difficulty]
+        max_rounds = level_config.max_rounds
         logger.info(f"Running up to {max_rounds} rounds in {discussion_mode} mode")
         prev_answers = [None] * n_experts
         orchestrator_feedback = None
@@ -379,54 +367,3 @@ class MedAgents:
         logger.info(f"Discussion completed. Final answer: {self.log.final_decision['final_answer']}")
         logger.info(f"Total usage: {self.log.total_usage.total_tokens} tokens ({self.log.total_usage.input_tokens} input, {self.log.total_usage.output_tokens} output)")
         return self.log
-
-@hydra.main(version_base=None, config_path='conf', config_name='config')
-def main(cfg: DictConfig):
-    load_dotenv()
-    client = AsyncOpenAI(
-        base_url=os.getenv("OPENAI_ENDPOINT"),
-        api_key=os.getenv("OPENAI_API_KEY"),
-    )
-    set_default_openai_client(client=client, use_for_tracing=False)
-    set_tracing_disabled(disabled=True)
-    question = (
-        "A junior orthopaedic surgery resident is completing a carpal tunnel repair with the department chairman as the attending physician. "
-        "During the case, the resident inadvertently cuts a flexor tendon. The tendon is repaired without complication. "
-        "The attending tells the resident that the patient will do fine, and there is no need to report this minor complication that will not harm the patient, "
-        "as he does not want to make the patient worry unnecessarily. He tells the resident to leave this complication out of the operative report. "
-        "Which of the following is the correct next action for the resident to take?"
-    )
-    options = {
-        "A": "Disclose the error to the patient and put it in the operative report",
-        "B": "Tell the attending that he cannot fail to disclose this mistake",
-        "C": "Report the physician to the ethics committee",
-        "D": "Refuse to dictate the operative report"
-    }
-    orchestrator = MedAgents(cfg)
-    result = asyncio.run(orchestrator.run(question, options))
-    
-    print("\n=== TOKEN USAGE SUMMARY ===")
-    if result.total_usage:
-        print(f"Total Tokens: {result.total_usage.total_tokens:,}")
-        print(f"Input Tokens: {result.total_usage.input_tokens:,}")
-        print(f"Output Tokens: {result.total_usage.output_tokens:,}")
-        print(f"Requests: {result.total_usage.requests}")
-        print(f"Cached Tokens: {result.total_usage.input_tokens_details.cached_tokens:,}")
-        print(f"Reasoning Tokens: {result.total_usage.output_tokens_details.reasoning_tokens:,}")
-        
-        print("\n=== BREAKDOWN BY AGENT ===")
-        for usage in result.usage_stats:
-            print(f"{usage.agent_name} ({usage.agent_type}): {usage.usage.total_tokens:,} tokens")
-            if usage.round_num is not None:
-                print(f"  Round: {usage.round_num + 1}")
-        
-        print("\n=== BREAKDOWN BY AGENT TYPE ===")
-        usage_by_type = orchestrator.get_usage_by_type()
-        for agent_type, usage in usage_by_type.items():
-            print(f"{agent_type.capitalize()}: {usage.total_tokens:,} tokens ({usage.input_tokens:,} input, {usage.output_tokens:,} output)")
-    
-    print("\n=== COMPLETE ORCHESTRATION LOG (JSON) ===")
-    print(json.dumps(result.to_dict(), indent=2))
-
-if __name__ == "__main__":
-    main()

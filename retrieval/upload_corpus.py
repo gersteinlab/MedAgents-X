@@ -1,14 +1,8 @@
 import numpy as np
 import json
 import os
-from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
-import torch
-from natsort import natsorted
-import regex as re
-from pymilvus import MilvusClient, DataType
+from pymilvus import MilvusClient
 import argparse
-from tqdm import tqdm
-from typing import List, Dict
 
 parent_dir = os.path.dirname(os.path.abspath(__file__))
 

@@ -12,18 +12,14 @@ search strategies and behaviors. The main tool includes:
 import os
 import json
 import logging
-import asyncio
-import nest_asyncio
 import random
-nest_asyncio.apply()
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 import torch
 from pymilvus import MilvusClient
-from openai import AsyncOpenAI
-from agents import function_tool, WebSearchTool
+from agents import function_tool
 from agents.models import _openai_shared
 
 from retriever import MedCPTRetriever
@@ -34,6 +30,7 @@ logging.basicConfig(level=logging.INFO)
 @dataclass
 class SearchConfig:
     """Configuration for search behavior."""
+    model_name: str = "gpt-4o-mini"
     milvus_uri: str = os.getenv("MILVUS_URI", "http://localhost:19530")
     allowed_sources: List[str] = None
     retrieve_topk: int = 100
@@ -43,10 +40,7 @@ class SearchConfig:
     rewrite: bool = True  # Only use rewrite
     review: bool = True  # Only use review
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    cache_size: int = 100
-    max_concurrent_searches: int = 3
     relevance_threshold: int = 5
-    search_history: str = "individual"  # [none, individual, shared]
     
     def __post_init__(self):
         if self.allowed_sources is None:
@@ -102,7 +96,7 @@ class SearchTool:
         )
         
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=self.config.model_name,
             messages=[
                 {"role": "system", "content": "You are a medical query optimization specialist."},
                 {"role": "user", "content": prompt}
@@ -133,7 +127,7 @@ class SearchTool:
         )
         
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=self.config.model_name,
             messages=[
                 {"role": "system", "content": "You are a medical document evaluation expert."},
                 {"role": "user", "content": prompt}
@@ -210,7 +204,7 @@ class SearchTool:
         )
         
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=self.config.model_name,
             messages=[
                 {"role": "system", "content": "You are a medical query generation specialist."},
                 {"role": "user", "content": prompt}
@@ -274,73 +268,52 @@ class SearchTool:
         """
         
         
-        original_config = {
-            'similarity_strategy': self.config.similarity_strategy,
-            'query_similarity_threshold': self.config.query_similarity_threshold
-        }
-        
-        try:
-            if self.config.similarity_strategy != "none":
-                similarity_info = self._check_query_similarity(query)
-                
-                if similarity_info["is_similar"] and similarity_info["recommendation"] == "reuse_previous_results":
-                    for cached_item in self._query_cache:
-                        if cached_item["query"] == similarity_info["most_similar_query"]:
-                            logger.info(f"Reusing results from similar query: {similarity_info['most_similar_query']}")
-                            return [doc for doc in cached_item["documents"]]
-                
-                if similarity_info["is_similar"] and similarity_info["recommendation"] == "generate_new_query":
-                    previous_queries = [item["query"] for item in self._query_cache]
-                    query = await self._generate_distinct_query(query, previous_queries, domain)
-                    logger.info(f"Generated new query: {query}")
-            
-            original_query = query
-            
-            if domain:
-                query += f" Specifically considering aspects related to {domain}."
-            
-            if self.config.rewrite:
-                query = await self._rewrite_query(query, domain)
-                logger.info(f"Rewritten query: {query}")
-            
-            retriever = self._get_retriever()
-            
-            all_docs = []
-            for source in self.config.allowed_sources:
-                try:
-                    docs = retriever.retrieve_filtered_sources(
-                        query, 
-                        self._get_milvus_client(), 
-                        allowed_sources=[source], 
-                        topk=self.config.retrieve_topk
-                    )
-                    all_docs.extend(docs)
-                except Exception as e:
-                    logger.warning(f"Retrieval from {source} failed: {e}")
-            
-            unique_docs = list(dict.fromkeys(all_docs))
-            reranked_docs = retriever.rerank(query, unique_docs)
-            documents = reranked_docs[:self.config.rerank_topk]
-            
-            if self.config.review:
-                reviewed_docs = []
-                for doc in documents:
-                    evaluation = await self._evaluate_document_relevance(doc, original_query, domain)
-                    if evaluation.get("relevance_score", 0) >= self.config.relevance_threshold:
-                        reviewed_docs.append(doc)
-                documents = reviewed_docs
-                logger.info(f"After review: {len(documents)}/{len(reranked_docs)} documents deemed helpful")
-             
-            self._query_cache.append({
-                "query": original_query,
-                "embedding": retriever.encode(original_query),
-                "documents": documents
-            })
-            return documents
-            
-        finally:
-            for key, value in original_config.items():
-                setattr(self.config, key, value)
+        if self.config.similarity_strategy != "none":
+            similarity_info = self._check_query_similarity(query)
+
+            if similarity_info["is_similar"] and similarity_info["recommendation"] == "reuse_previous_results":
+                for cached_item in self._query_cache:
+                    if cached_item["query"] == similarity_info["most_similar_query"]:
+                        logger.info(f"Reusing results from similar query: {similarity_info['most_similar_query']}")
+                        return [doc for doc in cached_item["documents"]]
+
+            if similarity_info["is_similar"] and similarity_info["recommendation"] == "generate_new_query":
+                previous_queries = [item["query"] for item in self._query_cache]
+                query = await self._generate_distinct_query(query, previous_queries, domain)
+                logger.info(f"Generated new query: {query}")
+
+        original_query = query
+
+        if domain:
+            query += f" Specifically considering aspects related to {domain}."
+
+        if self.config.rewrite:
+            query = await self._rewrite_query(query, domain)
+            logger.info(f"Rewritten query: {query}")
+
+        retriever = self._get_retriever()
+
+        unique_docs = retriever.retrieve(
+            query, sources=self.config.allowed_sources, topk=self.config.retrieve_topk
+        )
+        reranked_docs = retriever.rerank(query, unique_docs)
+        documents = reranked_docs[:self.config.rerank_topk]
+
+        if self.config.review:
+            reviewed_docs = []
+            for doc in documents:
+                evaluation = await self._evaluate_document_relevance(doc, original_query, domain)
+                if evaluation.get("relevance_score", 0) >= self.config.relevance_threshold:
+                    reviewed_docs.append(doc)
+            documents = reviewed_docs
+            logger.info(f"After review: {len(documents)}/{len(reranked_docs)} documents deemed helpful")
+
+        self._query_cache.append({
+            "query": original_query,
+            "embedding": retriever.encode(original_query),
+            "documents": documents
+        })
+        return documents
 
     def get_search_function(self):
         """Get the search function as a function_tool for use with OpenAI Agents SDK."""
@@ -372,19 +345,9 @@ class SearchTool:
         
         return search_medical_knowledge
 
-_search_config = SearchConfig()
-
-def update_search_config(**kwargs):
-    """Update the global search configuration."""
-    global _search_config
-    for key, value in kwargs.items():
-        if hasattr(_search_config, key):
-            setattr(_search_config, key, value)
-
 def get_search_tools(search_tool: Optional[SearchTool] = None) -> List:
     """
     Get the search tools for use with OpenAI Agents SDK.
-    Uses global configuration for backward compatibility.
     
     Returns:
         List containing the main search tool and previous queries tool
